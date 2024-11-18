@@ -29,7 +29,7 @@ public class JDB extends ListenerAdapter {
     }
 
     public static void main(String[] args) throws InterruptedException {
-        String token = "MTMwNDMwMzc0NzQwMDIwODQzNA.GoA2aV.xcKW0mrLrxXjWwzJwO6hcEzXwUAcssbdENnfPA";
+        String token = "MTMwODAwMTAxNTA2ODYyNjk4NA.GiUkwd.rdGcYkTYxoFKx54paKL5aDxW34BM-kLXKIjG0g";
         String mongoUri = "mongodb+srv://JDB:%40ModyNegm00@cluster0.x7cbu.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
         String databaseName = "JDB";
         String collectionName = "members";
@@ -52,7 +52,7 @@ public class JDB extends ListenerAdapter {
                         "https://www.roblox.com/games/18932416849/UPD2-Better-Basketball-Player"))
                 .addEventListeners(new SlashCommands())
                 .addEventListeners(new NewServer(mongoDB))
-                r.addEventListeners(new StartupCheck(mongoDB))
+                .addEventListeners(new StartupCheck(mongoDB))
                 //.addEventListeners(new SetupSystem())
                 .addEventListeners(jdb) // Add the main bot listener
                 .build().awaitReady();

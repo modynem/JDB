@@ -10,7 +10,6 @@ import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.OnlineStatus;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.*;
-import net.dv8tion.jda.api.entities.channel.concrete.PrivateChannel;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.entities.emoji.Emoji;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
@@ -740,6 +739,8 @@ public class SlashCommands extends ListenerAdapter {
         private static final int MAX_DMS_PER_MINUTE = 10;
         private static final int COOLDOWN_MINUTES = 5;
         private static final long UPDATE_INTERVAL = 2000;
+        private static final int BATCH_SIZE = 1000;
+        private static final long BATCH_COOLDOWN_MINUTES = 30; // Cooldown between batches
 
         private final Queue<Member> dmQueue = new ConcurrentLinkedQueue<>();
         private final Map<Long, Instant> lastDmTime = new ConcurrentHashMap<>();
@@ -747,6 +748,28 @@ public class SlashCommands extends ListenerAdapter {
         private Message progressMessage;
         private ScheduledExecutorService scheduler;
         private boolean isProcessing = false;
+
+        private class DmProgress {
+            private final AtomicInteger success = new AtomicInteger(0);
+            private final AtomicInteger failed = new AtomicInteger(0);
+            private final AtomicInteger processed = new AtomicInteger(0);
+            private final int total;
+            private final long startTime;
+            private final int currentBatch;
+            private final int totalBatches;
+            private final Map<String, String> failureReasons = new ConcurrentHashMap<>();
+
+            public DmProgress(int total, int currentBatch, int totalBatches) {
+                this.total = total;
+                this.startTime = System.currentTimeMillis();
+                this.currentBatch = currentBatch;
+                this.totalBatches = totalBatches;
+            }
+
+            public void addFailureReason(String userId, String reason) {
+                failureReasons.put(userId, reason);
+            }
+        }
 
         public void HandleDm(SlashCommandInteractionEvent event) {
             event.deferReply(true).queue();
@@ -771,18 +794,18 @@ public class SlashCommands extends ListenerAdapter {
                 EmbedBuilder initialEmbed = new EmbedBuilder()
                         .setTitle("DM Task Initiated")
                         .setDescription("Loading member list...")
-                        .setColor(Color.LIGHT_GRAY)
+                        .setColor(Color.lightGray)
                         .setTimestamp(Instant.now());
 
                 event.getHook().editOriginalEmbeds(initialEmbed.build()).queue(msg -> progressMessage = msg);
 
                 if (role.isPublicRole()) {
                     event.getGuild().loadMembers()
-                            .onSuccess(members -> filterAndQueueMembers(members, event, message, attachment, role))
+                            .onSuccess(members -> processInBatches(members, event, message, attachment, role))
                             .onError(error -> sendErrorEmbed(event, "Failed to load members: " + error.getMessage()));
                 } else {
                     event.getGuild().findMembers(member -> member.getRoles().contains(role))
-                            .onSuccess(members -> filterAndQueueMembers(members, event, message, attachment, role))
+                            .onSuccess(members -> processInBatches(members, event, message, attachment, role))
                             .onError(error -> sendErrorEmbed(event, "Failed to load members: " + error.getMessage()));
                 }
 
@@ -791,26 +814,8 @@ public class SlashCommands extends ListenerAdapter {
             }
         }
 
-        private class DmProgress {
-            private final AtomicInteger success = new AtomicInteger(0);
-            private final AtomicInteger failed = new AtomicInteger(0);
-            private final AtomicInteger processed = new AtomicInteger(0);
-            private final int total;
-            private final long startTime;
-            private final Map<String, String> failureReasons = new ConcurrentHashMap<>();
-
-            public DmProgress(int total) {
-                this.total = total;
-                this.startTime = System.currentTimeMillis();
-            }
-
-            public void addFailureReason(String userId, String reason) {
-                failureReasons.put(userId, reason);
-            }
-        }
-
-        private void filterAndQueueMembers(List<Member> members, SlashCommandInteractionEvent event,
-                                           String message, Message.Attachment attachment, Role role) {
+        private void processInBatches(List<Member> members, SlashCommandInteractionEvent event,
+                                      String message, Message.Attachment attachment, Role role) {
             List<Member> validMembers = members.stream()
                     .filter(member -> !member.getUser().isBot())
                     .filter(this::canReceiveDm)
@@ -821,33 +826,66 @@ public class SlashCommands extends ListenerAdapter {
                 return;
             }
 
-            // Check if the number of members is too high
-            if (validMembers.size() > 1000) {
-                sendErrorEmbed(event, "Too many members selected. Please choose a smaller group (max 1000).");
-                return;
-            }
+            int totalMembers = validMembers.size();
+            int totalBatches = (int) Math.ceil((double) totalMembers / BATCH_SIZE);
 
-            DmProgress progress = new DmProgress(validMembers.size());
-            dmQueue.addAll(validMembers);
+            EmbedBuilder batchInfoEmbed = new EmbedBuilder()
+                    .setTitle("DM Task Information")
+                    .setDescription(String.format("Total members to process: %d\nTotal batches: %d\nBatch size: %d\nCooldown between batches: %d minutes",
+                            totalMembers, totalBatches, BATCH_SIZE, BATCH_COOLDOWN_MINUTES))
+                    .setColor(Color.lightGray)
+                    .setTimestamp(Instant.now());
+
+            event.getHook().editOriginalEmbeds(batchInfoEmbed.build()).queue(msg -> {
+                processBatch(validMembers, 0, totalBatches, event, message, attachment, role);
+            });
+        }
+
+        private void processBatch(List<Member> allMembers, int batchIndex, int totalBatches,
+                                  SlashCommandInteractionEvent event, String message, Message.Attachment attachment, Role role) {
+            int startIndex = batchIndex * BATCH_SIZE;
+            int endIndex = Math.min(startIndex + BATCH_SIZE, allMembers.size());
+            List<Member> batchMembers = allMembers.subList(startIndex, endIndex);
+
+            DmProgress progress = new DmProgress(batchMembers.size(), batchIndex + 1, totalBatches);
+            dmQueue.clear(); // Clear any remaining members from previous batch
+            dmQueue.addAll(batchMembers);
 
             if (!isProcessing) {
                 isProcessing = true;
+                if (scheduler != null && !scheduler.isShutdown()) {
+                    scheduler.shutdownNow();
+                }
                 scheduler = Executors.newSingleThreadScheduledExecutor();
-                processDmQueue(message, attachment, progress, event, role);
+                processDmQueue(message, attachment, progress, event, role, () -> {
+                    // Batch completion callback
+                    if (batchIndex + 1 < totalBatches) {
+                        // Schedule next batch after cooldown
+                        EmbedBuilder cooldownEmbed = new EmbedBuilder()
+                                .setTitle("Batch Cooldown")
+                                .setDescription(String.format("Batch %d/%d completed. Waiting %d minutes before starting next batch...",
+                                        batchIndex + 1, totalBatches, BATCH_COOLDOWN_MINUTES))
+                                .setColor(Color.ORANGE)
+                                .setTimestamp(Instant.now());
+                        event.getHook().editOriginalEmbeds(cooldownEmbed.build()).queue();
+
+                        CompletableFuture.delayedExecutor(BATCH_COOLDOWN_MINUTES, TimeUnit.MINUTES).execute(() -> {
+                            processBatch(allMembers, batchIndex + 1, totalBatches, event, message, attachment, role);
+                        });
+                    }
+                });
             }
         }
 
-        private void processDmQueue(String message, Message.Attachment attachment,
-                                    DmProgress progress, SlashCommandInteractionEvent event, Role role) {
-            List<String> remainingMembers = new CopyOnWriteArrayList<>();
-
+        private void processDmQueue(String message, Message.Attachment attachment, DmProgress progress,
+                                    SlashCommandInteractionEvent event, Role role, Runnable onBatchComplete) {
             scheduler.scheduleAtFixedRate(() -> {
                 try {
                     if (dmQueue.isEmpty()) {
                         if (progress.processed.get() >= progress.total) {
                             scheduler.shutdown();
                             isProcessing = false;
-                            updateProgress(progress, remainingMembers, event, role);
+                            onBatchComplete.run();
                         }
                         return;
                     }
@@ -855,7 +893,6 @@ public class SlashCommands extends ListenerAdapter {
                     if (canSendDm()) {
                         Member member = dmQueue.poll();
                         if (member != null) {
-                            remainingMembers.add(member.getUser().getName());
                             sendDmToMember(member, message, attachment, progress, event, role);
                         }
                     }
@@ -873,78 +910,55 @@ public class SlashCommands extends ListenerAdapter {
 
         private void sendDmToMember(Member member, String message, Message.Attachment attachment,
                                     DmProgress progress, SlashCommandInteractionEvent event, Role role) {
-            member.getUser().openPrivateChannel().queue(channel -> {
-                if (attachment != null) {
-                    sendDmWithAttachment(channel, member, message, attachment, progress, event, role);
-                } else {
-                    sendDmWithoutAttachment(channel, member, message, progress, event, role);
-                }
-                lastDmTime.put(member.getIdLong(), Instant.now());
-            }, error -> handleDmError(member, error, progress, event, role));
-        }
+            member.getUser().openPrivateChannel().queue(
+                    channel -> {
+                        CompletableFuture<Message> sendFuture;
 
-        private void sendDmWithAttachment(PrivateChannel channel, Member member, String message,
-                                          Message.Attachment attachment, DmProgress progress,
-                                          SlashCommandInteractionEvent event, Role role) {
-            attachment.getProxy().download().thenAccept(is -> {
-                try {
-                    Path tempFile = Files.createTempFile("attachment", attachment.getFileName());
-                    Files.copy(is, tempFile, StandardCopyOption.REPLACE_EXISTING);
-
-                    channel.sendMessage(message)
-                            .addFiles(FileUpload.fromData(tempFile))
-                            .queue(
-                                    success -> {
-                                        handleSuccess(member, progress, event, role);
+                        if (attachment != null) {
+                            sendFuture = attachment.getProxy().download()
+                                    .thenCompose(is -> {
                                         try {
-                                            Files.delete(tempFile);
-                                        } catch (IOException e) {
-                                            e.printStackTrace();
-                                        }
-                                    },
-                                    error -> {
-                                        handleError(member, error, progress, event, role);
-                                        try {
-                                            Files.delete(tempFile);
-                                        } catch (IOException e) {
-                                            e.printStackTrace();
-                                        }
-                                    }
-                            );
-                } catch (IOException e) {
-                    handleError(member, e, progress, event, role);
-                }
-            });
-        }
+                                            Path tempFile = Files.createTempFile("attachment", attachment.getFileName());
+                                            Files.copy(is, tempFile, StandardCopyOption.REPLACE_EXISTING);
 
-        private void sendDmWithoutAttachment(PrivateChannel channel, Member member, String message,
-                                             DmProgress progress, SlashCommandInteractionEvent event, Role role) {
-            channel.sendMessage(message).queue(
-                    success -> handleSuccess(member, progress, event, role),
-                    error -> handleError(member, error, progress, event, role)
+                                            return channel.sendMessage(message)
+                                                    .addFiles(FileUpload.fromData(tempFile))
+                                                    .submit()
+                                                    .thenApply(msg -> {
+                                                        try {
+                                                            Files.delete(tempFile);
+                                                        } catch (IOException e) {
+                                                            e.printStackTrace();
+                                                        }
+                                                        return msg;
+                                                    });
+                                        } catch (IOException e) {
+                                            throw new CompletionException(e);
+                                        }
+                                    });
+                        } else {
+                            sendFuture = channel.sendMessage(message).submit();
+                        }
+
+                        sendFuture.whenComplete((msg, error) -> {
+                            if (error != null) {
+                                progress.failed.incrementAndGet();
+                                progress.addFailureReason(member.getId(), "Failed to send DM: " + error.getMessage());
+                            } else {
+                                progress.success.incrementAndGet();
+                            }
+                            progress.processed.incrementAndGet();
+                            lastDmTime.put(member.getIdLong(), Instant.now());
+                            updateProgress(progress, new ArrayList<>(), event, role);
+                        });
+                    },
+                    error -> {
+                        progress.failed.incrementAndGet();
+                        progress.processed.incrementAndGet();
+                        progress.addFailureReason(member.getId(), "Cannot open DM channel: " + error.getMessage());
+                        updateProgress(progress, new ArrayList<>(), event, role);
+                    }
             );
-        }
-
-        private void handleSuccess(Member member, DmProgress progress, SlashCommandInteractionEvent event, Role role) {
-            progress.success.incrementAndGet();
-            progress.processed.incrementAndGet();
-            updateProgress(progress, new ArrayList<>(), event, role);
-        }
-
-        private void handleError(Member member, Throwable error, DmProgress progress,
-                                 SlashCommandInteractionEvent event, Role role) {
-            progress.failed.incrementAndGet();
-            progress.processed.incrementAndGet();
-            progress.addFailureReason(member.getId(), error.getMessage());
-            updateProgress(progress, new ArrayList<>(), event, role);
-        }
-
-        private void handleDmError(Member member, Throwable error, DmProgress progress,
-                                   SlashCommandInteractionEvent event, Role role) {
-            progress.failed.incrementAndGet();
-            progress.processed.incrementAndGet();
-            progress.addFailureReason(member.getId(), "Cannot send DM: " + error.getMessage());
-            updateProgress(progress, new ArrayList<>(), event, role);
         }
 
         private void updateProgress(DmProgress progress, List<String> remainingMembers,
@@ -959,15 +973,19 @@ public class SlashCommands extends ListenerAdapter {
                         (elapsedTime / progress.processed.get()) * (progress.total - progress.processed.get()) : 0;
 
                 EmbedBuilder embed = new EmbedBuilder()
-                        .setTitle(progress.processed.get() >= progress.total ? "DM Task Completed" : "DM Progress Report")
+                        .setTitle(progress.processed.get() >= progress.total ?
+                                String.format("Batch %d/%d Completed", progress.currentBatch, progress.totalBatches) :
+                                String.format("Batch %d/%d Progress", progress.currentBatch, progress.totalBatches))
                         .setDescription(String.format("Sending messages to %s members", role.getName()))
-                        .addField("Progress", String.format("%d/%d (%d%%)",
+                        .addField("Batch Progress", String.format("%d/%d (%d%%)",
                                 progress.processed.get(), progress.total,
                                 (progress.processed.get() * 100) / progress.total), true)
-                        .addField("Success/Failed", String.format("✅ %d | ❌ %d",
+                        .addField("Success/Failed", String.format(Locale.US,"✅ %d | ❌ %d",
                                 progress.success.get(), progress.failed.get()), true)
                         .addField("Estimated Time Remaining", formatTime(estimatedTimeRemaining), true)
-                        .setColor(progress.processed.get() >= progress.total ? Color.GREEN : Color.LIGHT_GRAY)
+                        .addField("Batch Information", String.format("Current Batch: %d/%d",
+                                progress.currentBatch, progress.totalBatches), false)
+                        .setColor(progress.processed.get() >= progress.total ? Color.GREEN : Color.lightGray)
                         .setTimestamp(Instant.now());
 
                 if (!remainingMembers.isEmpty()) {
@@ -980,7 +998,6 @@ public class SlashCommands extends ListenerAdapter {
                     embed.addField("Currently Processing", remainingList, false);
                 }
 
-                // Add rate limit info
                 embed.addField("Rate Limit Status",
                         String.format("Sending %d messages per minute\nCooldown: %d minutes if limit reached",
                                 MAX_DMS_PER_MINUTE, COOLDOWN_MINUTES), false);
@@ -1017,20 +1034,13 @@ public class SlashCommands extends ListenerAdapter {
         private boolean isMessageSafe(String message) {
             if (message.length() > 2000) return false;
 
-            // Check for spam-like content
             String lowerMessage = message.toLowerCase();
-
-            // Check for invite links
             if (lowerMessage.matches(".*discord\\.(gg|me|com/invite).*")) return false;
-
-            // Check for mass mentions
             if (message.contains("@everyone") || message.contains("@here")) return false;
 
-            // Check for excessive caps
             int capsCount = (int) message.chars().filter(Character::isUpperCase).count();
             if (capsCount > message.length() * 0.7) return false;
 
-            // Check for excessive emojis
             int emojiCount = message.split("[:\\w+:]+").length - 1;
             if (emojiCount > 10) return false;
 
@@ -1038,10 +1048,8 @@ public class SlashCommands extends ListenerAdapter {
         }
 
         private boolean isAttachmentSafe(Message.Attachment attachment) {
-            // Check file size (8MB limit)
             if (attachment.getSize() > 8_388_608) return false;
 
-            // Check file type
             String fileName = attachment.getFileName().toLowerCase();
             Set<String> allowedExtensions = Set.of(
                     ".jpg", ".jpeg", ".png", ".gif", ".pdf",
@@ -1052,16 +1060,7 @@ public class SlashCommands extends ListenerAdapter {
         }
 
         private boolean canReceiveDm(Member member) {
-            // Basic checks for DM ability
-            if (member.getUser().isBot()) return false;
-            if (member.getUser().isSystem()) return false;
-
-            // You could add additional checks here, such as:
-            // - User preferences stored in a database
-            // - Role-based permissions
-            // - Activity status
-
-            return true;
+            return !member.getUser().isBot() && !member.getUser().isSystem();
         }
     }
 
