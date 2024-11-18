@@ -22,7 +22,7 @@ import org.bson.Document;
 
 public class JDB extends ListenerAdapter {
     private final MongoDB mongoDB;
-    private static final String Version = "23A712T";
+    private static final String Version = "26A932Y";
 
     public JDB(MongoDB mongoDB) {
         this.mongoDB = mongoDB;

@@ -1032,17 +1032,41 @@ public class SlashCommands extends ListenerAdapter {
         }
 
         private boolean isMessageSafe(String message) {
+            // Null or empty message check
+            if (message == null || message.trim().isEmpty()) return false;
+
+            // Check message length
             if (message.length() > 2000) return false;
-
-            String lowerMessage = message.toLowerCase();
-            if (lowerMessage.matches(".*discord\\.(gg|me|com/invite).*")) return false;
-            if (message.contains("@everyone") || message.contains("@here")) return false;
-
+            // Check for excessive capitalization
             int capsCount = (int) message.chars().filter(Character::isUpperCase).count();
             if (capsCount > message.length() * 0.7) return false;
+            // Check for emoji spam
+            long emojiCount = message.codePoints()
+                    .filter(cp -> {
+                        // Check if the codepoint is an emoji
+                        return (cp >= 0x1F600 && cp <= 0x1F64F) || // Emoticons
+                                (cp >= 0x1F300 && cp <= 0x1F5FF) || // Misc Symbols and Pictographs
+                                (cp >= 0x1F680 && cp <= 0x1F6FF) || // Transport and Map Symbols
+                                (cp >= 0x2600 && cp <= 0x26FF)   || // Misc symbols
+                                (cp >= 0x2700 && cp <= 0x27BF)   || // Dingbats
+                                (cp >= 0xFE00 && cp <= 0xFE0F)   || // Variation Selectors
+                                (cp >= 0x1F900 && cp <= 0x1F9FF);   // Supplemental Symbols and Pictographs
+                    })
+                    .count();
 
-            int emojiCount = message.split("[:\\w+:]+").length - 1;
-            if (emojiCount > 10) return false;
+            // Allow up to 15 emojis instead of 10
+            if (emojiCount > 15) return false;
+
+            // Relaxed link validation
+            String lowerMessage = message.toLowerCase();
+
+            // Allow Roblox game links with very permissive validation
+            if (lowerMessage.contains("roblox.com/games")) {
+                return true;
+            }
+            System.out.println(4);
+            // Block Discord invite links
+            if (lowerMessage.matches(".*discord\\.(gg|me|com/invite).*")) return false;
 
             return true;
         }
