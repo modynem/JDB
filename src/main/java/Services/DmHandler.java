@@ -13,9 +13,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
-import java.util.*;
 import java.util.List;
+import java.util.Queue;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -27,6 +30,10 @@ public class DmHandler {
     private static final long UPDATE_INTERVAL = 2000;
     private static final int BATCH_SIZE = 1000;
     private static final long BATCH_COOLDOWN_MINUTES = 30; // Cooldown between batches
+    private static final int MAX_DAILY_USES_PER_GUILD = 1; // Daily usage limit
+
+    // Track daily usage per guild
+    private final Map<Long, DailyUsage> guildDailyUsage = new ConcurrentHashMap<>();
 
     private final Queue<Member> dmQueue = new ConcurrentLinkedQueue<>();
     private final Map<Long, Instant> lastDmTime = new ConcurrentHashMap<>();
@@ -35,6 +42,37 @@ public class DmHandler {
     private ScheduledExecutorService scheduler;
     private boolean isProcessing = false;
 
+    // Daily usage tracking inner class
+    private static class DailyUsage {
+        private LocalDate date;
+        private int usageCount;
+
+        public DailyUsage() {
+            this.date = LocalDate.now(ZoneOffset.UTC);
+            this.usageCount = 1;
+        }
+
+        public boolean canUse() {
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            if (!date.equals(today)) {
+                // Reset for a new day
+                date = today;
+                usageCount = 0;
+            }
+            return usageCount < MAX_DAILY_USES_PER_GUILD;
+        }
+
+        public void incrementUsage() {
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            if (!date.equals(today)) {
+                date = today;
+                usageCount = 0;
+            }
+            usageCount++;
+        }
+    }
+
+    // Progress tracking inner class
     private class DmProgress {
         private final AtomicInteger success = new AtomicInteger(0);
         private final AtomicInteger failed = new AtomicInteger(0);
@@ -57,8 +95,18 @@ public class DmHandler {
         }
     }
 
+    // Main method to handle DM command
     public void HandleDm(SlashCommandInteractionEvent event) {
         assert event.getGuild() != null;
+        long guildId = event.getGuild().getIdLong();
+
+        // Check daily usage limit
+        DailyUsage usage = guildDailyUsage.computeIfAbsent(guildId, k -> new DailyUsage());
+
+        if (!usage.canUse()) {
+            sendErrorEmbed(event, "This guild has already used its daily DM bulk send limit. Please try again tomorrow.");
+            return;
+        }
 
         event.deferReply(true).queue();
 
@@ -78,6 +126,9 @@ public class DmHandler {
                 sendErrorEmbed(event, "Attachment type not allowed or file too large.");
                 return;
             }
+
+            // Mark usage before processing
+            usage.incrementUsage();
 
             EmbedBuilder initialEmbed = new EmbedBuilder()
                     .setTitle("DM Task Initiated")
@@ -102,9 +153,10 @@ public class DmHandler {
         }
     }
 
-    private void processInBatches(java.util.List<Member> members, SlashCommandInteractionEvent event,
+    // Batch processing method
+    private void processInBatches(List<Member> members, SlashCommandInteractionEvent event,
                                   String message, Message.Attachment attachment, Role role) {
-        java.util.List<Member> validMembers = members.stream()
+        List<Member> validMembers = members.stream()
                 .filter(member -> !member.getUser().isBot())
                 .filter(this::canReceiveDm)
                 .collect(Collectors.toList());
@@ -129,11 +181,12 @@ public class DmHandler {
         });
     }
 
-    private void processBatch(java.util.List<Member> allMembers, int batchIndex, int totalBatches,
+    // Batch processing method
+    private void processBatch(List<Member> allMembers, int batchIndex, int totalBatches,
                               SlashCommandInteractionEvent event, String message, Message.Attachment attachment, Role role) {
         int startIndex = batchIndex * BATCH_SIZE;
         int endIndex = Math.min(startIndex + BATCH_SIZE, allMembers.size());
-        java.util.List<Member> batchMembers = allMembers.subList(startIndex, endIndex);
+        List<Member> batchMembers = allMembers.subList(startIndex, endIndex);
 
         DmProgress progress = new DmProgress(batchMembers.size(), batchIndex + 1, totalBatches);
         dmQueue.clear(); // Clear any remaining members from previous batch
