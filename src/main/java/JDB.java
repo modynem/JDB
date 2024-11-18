@@ -1,5 +1,6 @@
 import Commands.SlashCommands;
 import Database.MongoDB;
+import Events.NewServer;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.Permission;
@@ -22,7 +23,7 @@ import org.bson.Document;
 
 public class JDB extends ListenerAdapter {
     private final MongoDB mongoDB;
-    private static final String Version = "26A932Y";
+    private static final String Version = "26A932ZA1";
 
     public JDB(MongoDB mongoDB) {
         this.mongoDB = mongoDB;
@@ -52,7 +53,7 @@ public class JDB extends ListenerAdapter {
                         "https://www.roblox.com/games/18932416849/UPD2-Better-Basketball-Player"))
                 .addEventListeners(new SlashCommands())
                 .addEventListeners(new NewServer(mongoDB))
-                .addEventListeners(new StartupCheck(mongoDB))
+                //.addEventListeners(new Events.StartupCheck(mongoDB))
                 //.addEventListeners(new SetupSystem())
                 .addEventListeners(jdb) // Add the main bot listener
                 .build().awaitReady();

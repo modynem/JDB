@@ -1,3 +1,5 @@
+package Events;
+
 import Database.MongoDB;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.entities.Guild;

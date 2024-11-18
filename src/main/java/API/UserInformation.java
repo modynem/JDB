@@ -1,15 +1,25 @@
 package API;
 
+import Componants.ErrorEmbed;
+import Services.DateConverter;
+import net.dv8tion.jda.api.EmbedBuilder;
+import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
+import net.dv8tion.jda.api.interactions.commands.OptionMapping;
+import net.dv8tion.jda.api.interactions.components.buttons.Button;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.awt.*;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 public class UserInformation extends ListenerAdapter {
     private final OkHttpClient client = new OkHttpClient();
@@ -220,5 +230,71 @@ public class UserInformation extends ListenerAdapter {
         }
 
         return gamepassIds;
+    }
+
+    public void PlayerInfo(SlashCommandInteractionEvent event) {
+        ErrorEmbed errorEmbed = new ErrorEmbed();
+
+        event.deferReply().queue();
+
+        String username = (String) Objects.requireNonNull(event.getOption("user_name", "", OptionMapping::getAsString));
+        try {
+
+            JSONObject userInfo = userInfo(username);
+            Button button = Button.link(String.format("https://www.roblox.com/users/%s/profile",userInfo.get("id")), "Profile!");
+
+            //ArrayList userStats = userInformation.userStats(userId);
+            String CreatedDateformatted = DateConverter.convertISOToFormattedDate(userInfo.get("created").toString(), "yyyy-MM-dd HH:mm:ss");
+            LocalDateTime dateTime = LocalDateTime.parse(CreatedDateformatted,
+                    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+
+            event.getHook().sendMessageEmbeds(
+                            new EmbedBuilder().setTitle(userInfo.get("displayName").toString())
+                                    .setDescription(userInfo.get("description").toString())
+                                    .setColor(Color.lightGray)
+                                    .addField("\uD83C\uDD94 User ID", "```"+userInfo.get("id").toString()+"```", true)
+                                    .addField("\uD83D\uDCC5 Created On", dateTime.format(DateTimeFormatter.ofPattern("E, MMM dd yyyy HH:mm")), true)
+                                    .addField("\uD83C\uDFAE IsBanned", userInfo.get("isBanned").toString(), true)
+                                    .addField("✅ HasVerifiedBadge", userInfo.get("hasVerifiedBadge").toString(), true)
+
+                                    .addField("\uD83D\uDD14 Followers", userInfo.get("followers").toString(), true)
+                                    .addField("\uD83D\uDC65 Friends", userInfo.get("friends").toString(), true)
+                                    .addField("\uD83D\uDC65 Following", userInfo.get("following").toString(), true)
+
+
+                                    .setThumbnail(userInfo.get("thumpnail").toString())
+                                    .build()
+                    ).setActionRow(button)
+                    .queue();
+        } catch (Exception e) {
+            event.getHook().sendMessageEmbeds(
+                    errorEmbed.Error("Error", e.getMessage(), "", "https://i.postimg.cc/g0tJpYc2/source.gif")
+            ).queue();
+        }
+    }
+
+    public void PlayerGamepasses(SlashCommandInteractionEvent event) {
+        ErrorEmbed errorEmbed = new ErrorEmbed();
+
+        event.deferReply().queue();
+        String username1 = (String) Objects.requireNonNull(event.getOption("user_name", "", OptionMapping::getAsString));
+        try {
+            Long UserID = userIdByUsername(username1);
+            ArrayList<Long> experiences = getExperiences(UserID);
+            List<List<Object>> gamepassesId = getGamepasses(experiences);
+            EmbedBuilder passses = new EmbedBuilder()
+                    .setTitle("\uD83D\uDCB8 Gamepasses")
+                    .setColor(Color.lightGray)
+                    .setFooter("JDB",
+                            event.getJDA().getSelfUser().getEffectiveAvatarUrl());
+            for (List<Object> pass : gamepassesId) {
+                passses.addField(pass.get(2).toString(), String.format("Price: %s | [LINK](%s)", pass.get(1).toString(), "https://www.roblox.com/game-pass/" + pass.get(0)), true);
+            }
+            event.getHook().sendMessageEmbeds(passses.build()).queue();
+        } catch (Exception e) {
+            event.getHook().sendMessageEmbeds(
+                    errorEmbed.Error("Error", e.getMessage().length() > 2000 ? "something went wrong" : e.getMessage(), "", "https://i.postimg.cc/g0tJpYc2/source.gif")
+            ).queue();
+        }
     }
 }
