@@ -29,7 +29,7 @@ public class JDB extends ListenerAdapter {
     }
 
     public static void main(String[] args) throws InterruptedException {
-        String token = "MTMwODAwMTAxNTA2ODYyNjk4NA.GiUkwd.rdGcYkTYxoFKx54paKL5aDxW34BM-kLXKIjG0g";
+        String token = "MTMwODAwMTAxNTA2ODYyNjk4NA.GltUB_.OUqmdU0MFb1qE7CoLGsGf9qOrMl-4zLsfbIufs";
         String mongoUri = "mongodb+srv://JDB:%40ModyNegm00@cluster0.x7cbu.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
         String databaseName = "JDB";
         String collectionName = "members";
