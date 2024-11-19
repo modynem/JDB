@@ -20,6 +20,12 @@ import net.dv8tion.jda.api.utils.ChunkingFilter;
 import net.dv8tion.jda.api.utils.MemberCachePolicy;
 import org.bson.Document;
 
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+import static Events.BotStatusMessage.sendStatusEmbed;
+
 
 public class JDB extends ListenerAdapter {
     private final MongoDB mongoDB;
@@ -30,11 +36,13 @@ public class JDB extends ListenerAdapter {
     }
 
     public static void main(String[] args) throws InterruptedException {
-        String token = "MTMwODAwMTAxNTA2ODYyNjk4NA.GltUB_.OUqmdU0MFb1qE7CoLGsGf9qOrMl-4zLsfbIufs";
+        String token = "MTMwODQwNjM0OTQ3NDA0MTk3OA.GeNwHg.Vsua2R6p--GtVaO000aqHZ4sFtNdrUJxmcBn_E";
         String mongoUri = "mongodb+srv://JDB:%40ModyNegm00@cluster0.x7cbu.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
         String databaseName = "JDB";
         String collectionName = "members";
         final MongoDB mongoDB = new MongoDB(mongoUri, databaseName, collectionName);
+        final long guildId = 1248222329398493275L ; // Your Discord Server ID
+        final long channelId = 1307414538886582413L; // Channel to send status message
 
         // Create bot instance with MongoDB
         JDB jdb = new JDB(mongoDB);
@@ -53,11 +61,14 @@ public class JDB extends ListenerAdapter {
                         "https://www.roblox.com/games/18932416849/UPD2-Better-Basketball-Player"))
                 .addEventListeners(new SlashCommands())
                 .addEventListeners(new NewServer(mongoDB))
-                //.addEventListeners(new Events.StartupCheck(mongoDB))
+                .addEventListeners(new Events.StartupCheck(mongoDB))
                 //.addEventListeners(new SetupSystem())
                 .addEventListeners(jdb) // Add the main bot listener
                 .build().awaitReady();
-
+        // Schedule status message every 4 hours
+        ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+        scheduler.scheduleAtFixedRate(() -> sendStatusEmbed(jda, guildId, channelId),
+                0, 4, TimeUnit.HOURS);
         System.out.println(Version);
         // Register slash commands globally
         jda.updateCommands().addCommands(
@@ -121,11 +132,11 @@ public class JDB extends ListenerAdapter {
                 Commands.slash("lock", "lock the current channel")
                         .setDefaultPermissions(DefaultMemberPermissions.enabledFor(Permission.MANAGE_CHANNEL)),
 
-                Commands.slash("send_dm", "send a private for a specific role")
-                        .addOption(OptionType.ROLE, "role", "role that you want to send in dm to", true)
-                        .addOption(OptionType.STRING, "message", "message you want to send", true)
-                        .addOption(OptionType.ATTACHMENT, "attachment", "add attachment e.g. [Image]", false)
-                        .setDefaultPermissions(DefaultMemberPermissions.enabledFor(Permission.ADMINISTRATOR)),
+//                Commands.slash("send_dm", "send a private for a specific role")
+//                        .addOption(OptionType.ROLE, "role", "role that you want to send in dm to", true)
+//                        .addOption(OptionType.STRING, "message", "message you want to send", true)
+//                        .addOption(OptionType.ATTACHMENT, "attachment", "add attachment e.g. [Image]", false)
+//                        .setDefaultPermissions(DefaultMemberPermissions.enabledFor(Permission.ADMINISTRATOR)),
 
 //                Commands.slash("setup_marketplace", "setup your server marketplace")
 //                        .setDefaultPermissions(DefaultMemberPermissions.enabledFor(Permission.ADMINISTRATOR))

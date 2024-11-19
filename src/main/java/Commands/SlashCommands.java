@@ -51,10 +51,10 @@ public class SlashCommands extends ListenerAdapter {
                 Channel channel = new Channel();
                 channel.Lock(event);
                 break;
-            case "send_dm":
-                 DmHandler dmHandler = new DmHandler();
-                dmHandler.HandleDm(event);
-                break;
+//            case "send_dm":
+//                 DmHandler dmHandler = new DmHandler();
+//                dmHandler.HandleDm(event);
+//                break;
             case "help":
                 User user4 = new User();
                 user4.Help(event);
