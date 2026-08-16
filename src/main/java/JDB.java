@@ -36,13 +36,13 @@ public class JDB extends ListenerAdapter {
     }
 
     public static void main(String[] args) throws InterruptedException {
-        String token = "MTMwODQwNjM0OTQ3NDA0MTk3OA.GeNwHg.Vsua2R6p--GtVaO000aqHZ4sFtNdrUJxmcBn_E";
-        String mongoUri = "mongodb+srv://JDB:%40ModyNegm00@cluster0.x7cbu.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
+        String token = "";
+        String mongoUri = "";
         String databaseName = "JDB";
         String collectionName = "members";
         final MongoDB mongoDB = new MongoDB(mongoUri, databaseName, collectionName);
-        final long guildId = 1248222329398493275L ; // Your Discord Server ID
-        final long channelId = 1307414538886582413L; // Channel to send status message
+        final long guildId = 000 ; // Your Discord Server ID
+        final long channelId = 000; // Channel to send status message
 
         // Create bot instance with MongoDB
         JDB jdb = new JDB(mongoDB);
@@ -57,8 +57,8 @@ public class JDB extends ListenerAdapter {
                 .setMemberCachePolicy(MemberCachePolicy.ALL)
                 .setChunkingFilter(ChunkingFilter.ALL) // Enable member chunking for all guilds
                 .setActivity(Activity.of(Activity.ActivityType.PLAYING,
-                        "Better Basketball Player?",
-                        "https://www.roblox.com/games/18932416849/UPD2-Better-Basketball-Player"))
+                        "",
+                        ""))
                 .addEventListeners(new SlashCommands())
                 .addEventListeners(new NewServer(mongoDB))
                 .addEventListeners(new Events.StartupCheck(mongoDB))
