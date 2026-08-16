@@ -8,7 +8,7 @@ import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEve
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 
 public class SlashCommands extends ListenerAdapter {
-    private final String mongoUri = "mongodb+srv://JDB:%40ModyNegm00@cluster0.x7cbu.mongodb.net/";
+    private final String mongoUri = "";
     private final String databaseName = "JDB";
     DateConverter dateConverter = new DateConverter();
 
