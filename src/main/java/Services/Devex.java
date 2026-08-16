@@ -10,7 +10,7 @@ import org.json.JSONObject;
 import java.util.Locale;
 
 public class Devex {
-    private static final String API_KEY = "f56644dfe146f75c12c7461f"; // Get from exchangerate-api.com or similar service
+    private static final String API_KEY = ""; // Get from exchangerate-api.com or similar service
     private final OkHttpClient client = new OkHttpClient();
 
     public void DevexCurrency(SlashCommandInteractionEvent event) {
