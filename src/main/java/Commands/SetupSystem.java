@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.*;
 
 public class SetupSystem extends ListenerAdapter {
-    String mongoUri = "mongodb+srv://JDB:%40ModyNegm00@cluster0.x7cbu.mongodb.net/";
+    String mongoUri = "";
     String databaseName = "JDB";
     String collectionName = "Setup";
     private final Map<Long, SetupData> setupStates = new HashMap<>();
